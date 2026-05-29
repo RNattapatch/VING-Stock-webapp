@@ -91,7 +91,14 @@
   </dialog>
 
   <script>
+    // ── ฝัง Web App URL ตรงนี้ (ลงท้าย /exec) — ว่าง = ใช้จากปุ่ม ⚙ หน้าแรก ──
+    const HARDCODED_API = 'https://script.google.com/macros/s/AKfycby7juEv2-FTe4_UpxgEOo76yL0UZvWHZobe1C5ezl6TafCmz6eGG1rPPolu0jCxZ5uY/exec';
+
     const API_KEY = 'ving_api', SES_KEY = 'ving_session', SKUS_KEY = 'ving_skus';
+    function getApi() {
+      const h = HARDCODED_API.indexOf('http') === 0 ? HARDCODED_API : '';
+      return h || localStorage.getItem(API_KEY) || '';
+    }
     const ses = (() => { try { return JSON.parse(localStorage.getItem(SES_KEY) || 'null'); } catch { return null; } })();
     if (!ses || !ses.email) { location.href = 'index.html'; }
 
@@ -110,7 +117,7 @@
       setTimeout(() => el.remove(), 2600);
     }
     async function apiPost(payload) {
-      const url = localStorage.getItem(API_KEY) || '';
+      const url = getApi();
       if (!url) throw new Error('ยังไม่ได้ตั้งค่า API (กลับหน้าแรก กด ⚙)');
       const res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload) });
       return res.json();

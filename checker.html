@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style type="text/tailwindcss">
     @theme {
       --font-display: "Chakra Petch", sans-serif;
@@ -40,8 +41,13 @@
     <div class="card bg-base-100 shadow-lg mb-4">
       <div class="card-body p-4">
         <label class="text-sm font-semibold opacity-70 mb-1">ยิง barcode / พิมพ์ SKU แล้ว Enter</label>
-        <input id="scan" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-               placeholder="พร้อมยิง…" class="input input-bordered input-lg w-full font-mono text-lg" />
+        <div class="flex gap-2">
+          <input id="scan" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 placeholder="พร้อมยิง…" class="input input-bordered input-lg flex-1 font-mono text-lg" />
+          <button id="btnCam" class="btn btn-lg btn-outline btn-primary" title="สแกนด้วยกล้องมือถือ">
+            <i data-lucide="camera" class="w-5 h-5"></i>
+          </button>
+        </div>
         <div class="flex gap-2 mt-2 text-center">
           <div class="flex-1 bg-base-200 rounded-lg py-2">
             <p class="text-2xl font-display font-bold text-primary" id="totalQty">0</p>
@@ -75,6 +81,19 @@
 
   <div id="toast" class="toast toast-top toast-center z-50"></div>
 
+  <!-- camera scanner -->
+  <dialog id="dlgCam" class="modal">
+    <div class="modal-box max-w-md p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-display font-bold text-lg"><i data-lucide="camera" class="w-5 h-5 inline"></i> สแกนด้วยกล้อง</h3>
+        <button id="btnCamClose" class="btn btn-ghost btn-sm btn-circle"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <p class="text-sm opacity-60 mb-2">เล็ง barcode ให้อยู่ในกรอบ — ยิงต่อเนื่องได้เลย</p>
+      <div id="reader" class="rounded-lg overflow-hidden bg-base-300"></div>
+      <p id="camLast" class="text-center text-sm font-medium mt-2 min-h-[1.25rem]"></p>
+    </div>
+  </dialog>
+
   <!-- reset confirm -->
   <dialog id="dlgReset" class="modal">
     <div class="modal-box">
@@ -88,8 +107,15 @@
   </dialog>
 
   <script>
+    // ── ฝัง Web App URL ตรงนี้ (ลงท้าย /exec) — ว่าง = ใช้จากปุ่ม ⚙ หน้าแรก ──
+    const HARDCODED_API = 'https://script.google.com/macros/s/AKfycby7juEv2-FTe4_UpxgEOo76yL0UZvWHZobe1C5ezl6TafCmz6eGG1rPPolu0jCxZ5uY/exec';
+
     const API_KEY = 'ving_api', SES_KEY = 'ving_session';
     const COUNT_KEY = 'ving_count', SKUS_KEY = 'ving_skus', SID_KEY = 'ving_session_id';
+    function getApi() {
+      const h = HARDCODED_API.indexOf('http') === 0 ? HARDCODED_API : '';
+      return h || localStorage.getItem(API_KEY) || '';
+    }
 
     const ses = (() => { try { return JSON.parse(localStorage.getItem(SES_KEY) || 'null'); } catch { return null; } })();
     if (!ses || !ses.email) { location.href = 'index.html'; }
@@ -117,7 +143,7 @@
     }
 
     async function apiPost(payload) {
-      const url = localStorage.getItem(API_KEY) || '';
+      const url = getApi();
       if (!url) throw new Error('ยังไม่ได้ตั้งค่า API (กลับหน้าแรก กด ⚙)');
       const res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload) });
       return res.json();
@@ -276,6 +302,71 @@
       render(); focusScan();
       toast('เริ่มรอบใหม่แล้ว', 'success');
     });
+
+    // ── camera scanner ──
+    let html5qr = null;
+    let camLast = { code: '', t: 0 };
+
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = 880; o.type = 'square'; g.gain.value = 0.08;
+        o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 90);
+      } catch {}
+    }
+
+    function onCamScan(text) {
+      const code = String(text).trim();
+      const now = Date.now();
+      if (code === camLast.code && now - camLast.t < 1500) return; // กันยิงซ้ำรัวจากเฟรมเดียวกัน
+      camLast = { code, t: now };
+      addScan(code);
+      beep();
+      const el = document.getElementById('camLast');
+      el.textContent = '✓ ' + (COUNT[code.toUpperCase()] ? (COUNT[code.toUpperCase()].product_name || code) : code);
+      el.className = 'text-center text-sm font-medium mt-2 min-h-[1.25rem] text-success';
+    }
+
+    async function openCam() {
+      document.getElementById('dlgCam').showModal();
+      const formats = (window.Html5QrcodeSupportedFormats) ? [
+        Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.ITF, Html5QrcodeSupportedFormats.CODABAR,
+        Html5QrcodeSupportedFormats.QR_CODE,
+      ] : undefined;
+      try {
+        html5qr = new Html5Qrcode('reader', { formatsToSupport: formats, verbose: false });
+        await html5qr.start(
+          { facingMode: 'environment' },
+          { fps: 12, qrbox: { width: 260, height: 160 } },
+          onCamScan,
+          () => {}
+        );
+      } catch (err) {
+        toast('เปิดกล้องไม่ได้: ' + (err.message || err) + ' — ลองอนุญาตกล้องในเบราว์เซอร์', 'error');
+        closeCam();
+      }
+    }
+
+    async function closeCam() {
+      if (html5qr) {
+        try { await html5qr.stop(); await html5qr.clear(); } catch {}
+        html5qr = null;
+      }
+      const el = document.getElementById('camLast');
+      el.textContent = ''; el.className = 'text-center text-sm font-medium mt-2 min-h-[1.25rem]';
+      const dlg = document.getElementById('dlgCam');
+      if (dlg.open) dlg.close();
+      focusScan();
+    }
+
+    document.getElementById('btnCam').addEventListener('click', openCam);
+    document.getElementById('btnCamClose').addEventListener('click', closeCam);
+    document.getElementById('dlgCam').addEventListener('close', closeCam);
 
     // ── escaping helpers ──
     function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }

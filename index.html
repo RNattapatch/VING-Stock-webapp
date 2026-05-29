@@ -105,10 +105,16 @@
   <div id="toast" class="toast toast-top toast-center z-50"></div>
 
   <script>
+    // ── ฝัง Web App URL ตรงนี้ (ลงท้าย /exec) — ว่าง = ใช้จากปุ่ม ⚙ ──
+    const HARDCODED_API = 'https://script.google.com/macros/s/AKfycby7juEv2-FTe4_UpxgEOo76yL0UZvWHZobe1C5ezl6TafCmz6eGG1rPPolu0jCxZ5uY/exec';
+
     const API_KEY = 'ving_api';
     const SES_KEY = 'ving_session';
 
-    function getApi()  { return localStorage.getItem(API_KEY) || ''; }
+    function getApi()  {
+      const h = HARDCODED_API.indexOf('http') === 0 ? HARDCODED_API : '';
+      return h || localStorage.getItem(API_KEY) || '';
+    }
     function getSes()  { try { return JSON.parse(localStorage.getItem(SES_KEY) || 'null'); } catch { return null; } }
 
     function toast(msg, type = 'info') {
