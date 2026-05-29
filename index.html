@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="th" data-theme="corporate">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VING — ระบบเช็คสต็อก</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style type="text/tailwindcss">
+    @theme {
+      --font-display: "Chakra Petch", sans-serif;
+      --font-body: "Sarabun", sans-serif;
+    }
+  </style>
+</head>
+<body class="font-body min-h-screen bg-base-200 flex items-center justify-center p-4">
+
+  <!-- ⚙ API config (มุมขวาบน) -->
+  <button id="btnCfg" class="btn btn-ghost btn-sm btn-circle fixed top-3 right-3 z-40" title="ตั้งค่า API">
+    <i data-lucide="settings" class="w-5 h-5"></i>
+  </button>
+
+  <div class="w-full max-w-md">
+
+    <!-- header -->
+    <div class="text-center mb-6">
+      <h1 class="text-4xl font-display font-bold tracking-wide text-primary">VING</h1>
+      <p class="text-sm opacity-60 mt-1">ระบบเช็คสต็อก &amp; ปรับเกรดสินค้า</p>
+    </div>
+
+    <!-- STATE: ยังไม่ login -->
+    <div id="gate" class="card bg-base-100 shadow-xl hidden">
+      <div class="card-body">
+        <h2 class="card-title font-display"><i data-lucide="lock" class="w-5 h-5"></i> เข้าสู่ระบบ</h2>
+        <p class="text-sm opacity-60 -mt-1">กรอกอีเมลของคุณ — ระบบจะผูกสาขาให้อัตโนมัติ</p>
+        <div class="form-control mt-2">
+          <input id="email" type="email" inputmode="email" autocomplete="email"
+                 placeholder="you@ving.com" class="input input-bordered input-lg w-full" />
+        </div>
+        <button id="btnLogin" class="btn btn-primary btn-lg mt-3 w-full">
+          <span id="loginLabel">เข้าสู่ระบบ</span>
+          <span id="loginSpin" class="loading loading-spinner hidden"></span>
+        </button>
+        <p id="gateMsg" class="text-error text-sm text-center mt-1 min-h-[1.25rem]"></p>
+      </div>
+    </div>
+
+    <!-- STATE: login แล้ว -->
+    <div id="menu" class="hidden">
+      <div class="card bg-base-100 shadow-xl mb-4">
+        <div class="card-body py-4 flex-row items-center justify-between">
+          <div>
+            <p class="text-xs opacity-50">สาขา</p>
+            <p class="font-display font-semibold text-lg leading-tight" id="branchName">—</p>
+            <p class="text-xs opacity-50" id="userEmail">—</p>
+          </div>
+          <button id="btnLogout" class="btn btn-ghost btn-sm">
+            <i data-lucide="log-out" class="w-4 h-4"></i> ออก
+          </button>
+        </div>
+      </div>
+
+      <div class="grid gap-3">
+        <a href="checker.html" class="card bg-primary text-primary-content shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-[1.02]">
+          <div class="card-body flex-row items-center gap-4">
+            <i data-lucide="scan-barcode" class="w-10 h-10"></i>
+            <div>
+              <p class="font-display font-bold text-xl">นับสต็อก</p>
+              <p class="text-sm opacity-80">ยิง barcode นับสินค้า</p>
+            </div>
+          </div>
+        </a>
+        <a href="stock.html" class="card bg-base-100 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-[1.02]">
+          <div class="card-body flex-row items-center gap-4">
+            <i data-lucide="package-search" class="w-10 h-10 text-primary"></i>
+            <div>
+              <p class="font-display font-bold text-xl">สินค้า</p>
+              <p class="text-sm opacity-60">ปรับเกรด (ตกเกรด / หลุด QC / ส่งคืน)</p>
+            </div>
+          </div>
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- API config modal -->
+  <dialog id="dlgCfg" class="modal">
+    <div class="modal-box">
+      <h3 class="font-display font-bold text-lg"><i data-lucide="settings" class="w-5 h-5 inline"></i> ตั้งค่า API</h3>
+      <p class="text-sm opacity-60 mt-1">วาง Web App URL จาก Apps Script (ลงท้าย /exec)</p>
+      <input id="apiUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec"
+             class="input input-bordered w-full mt-3" />
+      <div class="modal-action">
+        <button id="btnCfgSave" class="btn btn-primary">บันทึก</button>
+        <form method="dialog"><button class="btn">ปิด</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- toast -->
+  <div id="toast" class="toast toast-top toast-center z-50"></div>
+
+  <script>
+    const API_KEY = 'ving_api';
+    const SES_KEY = 'ving_session';
+
+    function getApi()  { return localStorage.getItem(API_KEY) || ''; }
+    function getSes()  { try { return JSON.parse(localStorage.getItem(SES_KEY) || 'null'); } catch { return null; } }
+
+    function toast(msg, type = 'info') {
+      const cls = { info: 'alert-info', success: 'alert-success', error: 'alert-error', warning: 'alert-warning' }[type] || 'alert-info';
+      const el = document.createElement('div');
+      el.className = 'alert ' + cls + ' shadow';
+      el.innerHTML = '<span>' + msg + '</span>';
+      document.getElementById('toast').appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    async function apiPost(payload) {
+      const url = getApi();
+      if (!url) { throw new Error('ยังไม่ได้ตั้งค่า API — กดปุ่ม ⚙ มุมขวาบน'); }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      return res.json();
+    }
+
+    // ── render state ──
+    function render() {
+      const ses = getSes();
+      const gate = document.getElementById('gate');
+      const menu = document.getElementById('menu');
+      if (ses && ses.email) {
+        gate.classList.add('hidden');
+        menu.classList.remove('hidden');
+        document.getElementById('branchName').textContent = ses.branch_name || ses.branch_code || '—';
+        document.getElementById('userEmail').textContent = ses.email;
+      } else {
+        menu.classList.add('hidden');
+        gate.classList.remove('hidden');
+      }
+      lucide.createIcons();
+    }
+
+    // ── login ──
+    async function login() {
+      const email = document.getElementById('email').value.trim();
+      const msg = document.getElementById('gateMsg');
+      msg.textContent = '';
+      if (!email || email.indexOf('@') < 0) { msg.textContent = 'กรุณากรอกอีเมลให้ถูกต้อง'; return; }
+
+      const btn = document.getElementById('btnLogin');
+      document.getElementById('loginLabel').classList.add('hidden');
+      document.getElementById('loginSpin').classList.remove('hidden');
+      btn.disabled = true;
+      try {
+        const r = await apiPost({ action: 'verify_email', email });
+        if (r.ok) {
+          localStorage.setItem(SES_KEY, JSON.stringify({
+            email, branch_code: r.branch_code, branch_name: r.branch_name,
+          }));
+          render();
+          toast('เข้าสู่ระบบสำเร็จ ✓', 'success');
+        } else {
+          msg.textContent = r.error === 'not_allowed'
+            ? 'ไม่พบสิทธิ์เข้าใช้ — ติดต่อแอดมินเพื่อเพิ่มอีเมลของคุณ'
+            : ('เข้าระบบไม่สำเร็จ: ' + (r.error || ''));
+        }
+      } catch (err) {
+        msg.textContent = err.message;
+      } finally {
+        document.getElementById('loginLabel').classList.remove('hidden');
+        document.getElementById('loginSpin').classList.add('hidden');
+        btn.disabled = false;
+      }
+    }
+
+    // ── events ──
+    document.getElementById('btnLogin').addEventListener('click', login);
+    document.getElementById('email').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+    document.getElementById('btnLogout').addEventListener('click', () => {
+      localStorage.removeItem(SES_KEY);
+      render();
+    });
+    document.getElementById('btnCfg').addEventListener('click', () => {
+      document.getElementById('apiUrl').value = getApi();
+      document.getElementById('dlgCfg').showModal();
+    });
+    document.getElementById('btnCfgSave').addEventListener('click', () => {
+      const v = document.getElementById('apiUrl').value.trim();
+      localStorage.setItem(API_KEY, v);
+      document.getElementById('dlgCfg').close();
+      toast('บันทึก API แล้ว ✓', 'success');
+    });
+
+    // ── init ──
+    render();
+    if (!getApi()) {
+      setTimeout(() => toast('ครั้งแรก: กดปุ่ม ⚙ มุมขวาบน เพื่อตั้งค่า API', 'warning'), 400);
+    }
+  </script>
+</body>
+</html>
